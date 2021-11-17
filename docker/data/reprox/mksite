@@ -1,0 +1,62 @@
+#!/bin/bash
+
+PORT=80
+has_name_option=false
+while getopts ":c:p:" opt; do
+  case $opt in
+    p)
+      PORT=$OPTARG
+      ;;
+    c)
+      has_name_option=true
+      NAME=$OPTARG
+      ;;
+    \?)
+      echo "Invalid option: -$OPTARG" 1>&2
+      exit 1
+      ;;
+    :)
+      echo "Missing argument for -$OPTARG" 1>&2
+      exit 1
+      ;;
+  esac
+done
+shift $((OPTIND -1))
+
+if [ $# -eq 0 ]; then
+  echo "Missing argument for site name" 1>&2
+  exit 1
+fi
+SITE="$1"
+shift
+if [ $# -ne 0 ]; then
+  echo "Invalid arguments to mksite after site name: $@" 1>&2
+  exit 1
+fi
+
+if [ "$has_name_option" = false ]; then
+  NAME="$SITE"
+fi
+
+# ****** Copy the template file to the site folder ******
+# TODO: Set some of these values from a .env file.
+SITE_FILE="sites/$NAME.conf"
+mkdir -p sites
+cp templates/template.conf $SITE_FILE
+sed -i "s/%{SITE}%/$SITE/g" $SITE_FILE
+sed -i "s/%{NAME}%/$NAME/g" $SITE_FILE
+sed -i "s/%{PORT}%/$PORT/g" $SITE_FILE
+
+# ****** Create a certificate for the site ******
+# Customize the ext file
+NAME_PREFIX="certs/$SITE/$SITE.longshore.local"
+EXT_FILE="$NAME_PREFIX.ext"
+mkdir -p "certs/$SITE"
+cp templates/template.ext $EXT_FILE
+sed -i "s/%{SITE}%/$SITE/g" $EXT_FILE
+
+# Generate the certificate
+openssl genrsa -out "$NAME_PREFIX.key" 2048
+openssl req -new -subj "/C=US/ST=Mississippi/L=Ridgeland/O=Longshore Softworks/OU=DevOps/CN=$SITE.longshore.local" -key "$NAME_PREFIX.key" -out "$NAME_PREFIX.csr"
+openssl x509 -req -in $NAME_PREFIX.csr -CA certs/lswca.pem -CAkey certs/lswca.key -CAcreateserial -out $NAME_PREFIX.crt -days 825 -sha256 -extfile $NAME_PREFIX.ext
+
